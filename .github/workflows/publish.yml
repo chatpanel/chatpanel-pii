@@ -1,0 +1,41 @@
+# Publish chatpanel-pii to npm via OIDC Trusted Publishing — NO token.
+#
+# One-time setup on npmjs.com: package chatpanel-pii → Settings → Trusted
+# Publisher → GitHub Actions, repository "chatpanel/chatpanel-pii", workflow
+# filename "publish.yml". (First publish of a brand-new name may need one manual
+# `npm publish` after `npm login`, then configure trusted publishing.)
+#
+# Pure, dependency-free package — nothing to build. Publish this BEFORE the
+# gateway (the gateway depends on it). Version-guarded: unchanged versions skip.
+name: Publish to npm
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+      - name: Ensure npm supports trusted publishing (>= 11.5.1)
+        run: npm install -g npm@latest
+      - name: Publish if the version is new
+        run: |
+          NAME=$(node -p "require('./package.json').name")
+          VER=$(node -p "require('./package.json').version")
+          if npm view "$NAME@$VER" version >/dev/null 2>&1; then
+            echo "$NAME@$VER already on npm — bump the version to publish."
+          else
+            npm publish --provenance --access public
+            echo "Published $NAME@$VER"
+          fi
