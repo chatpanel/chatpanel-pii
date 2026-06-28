@@ -14,3 +14,4 @@ export * from './pii-redact.js';
 export * from './pii-detect.js';
 export * from './pipeline.js';
 export * from './tool-rank.js';
+export * from './tool-harness.js';
