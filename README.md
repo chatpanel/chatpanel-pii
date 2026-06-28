@@ -9,7 +9,7 @@ the **single source of truth** shared by the ChatPanel
 here is picked up by all of them.
 
 ```js
-import { createVault, redactText, restoreText, detectEntities } from 'chatpanel-pii';
+import { createVault, redactText, restoreText, detectEntities } from '@chatpanel/pii';
 
 const vault = createVault();
 const safe = redactText('email alex@example.com', vault, { tier: 'basic' });
@@ -30,8 +30,8 @@ real values — and they're reconstructed locally on the way back.
 | `pii-detect.js` | `detectEntities`, `normalizeEntities`, `EXTRACT_SYS`, … | local entity detection (any HTTP NER endpoint, or a local OpenAI-compatible LLM) |
 | `pipeline.js` | `redactOutbound`, `makeStreamRestorer`, `restore`, `restoreDeep`, `redactResult`, `effectiveTier`, `gatedDictionary`, `gatedScope` | pure turn orchestration + the free/Pro tier, scope, and dictionary gating |
 
-Import the barrel (`chatpanel-pii`) or a submodule
-(`chatpanel-pii/pii-redact.js`).
+Import the barrel (`@chatpanel/pii`) or a submodule
+(`@chatpanel/pii/pii-redact.js`).
 
 ## Tiers
 
