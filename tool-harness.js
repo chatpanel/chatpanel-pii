@@ -41,6 +41,30 @@ export function restoreToolArgs(value, vault) {
   return value;
 }
 
+// System-prompt note that tells the model how to behave around placeholders when
+// tools are armed. WITHOUT this, privacy-aware models (Codex, Claude) recognize a
+// [[LOCATION_1]] token as redacted and REFUSE to use it for a lookup ("I can't see
+// your real city") — the opposite of what we want. Weak models call the tool blindly
+// and it works (the harness restores the real value), so the note levels them up.
+export function placeholderToolNote({ toolData = 'real' } = {}) {
+  const intro =
+    'PRIVACY PLACEHOLDERS: some values in this conversation are tokens like [[PERSON_1]], '
+    + '[[LOCATION_1]], [[ORG_1]] that stand in for the user\'s real private data. ';
+  const remote = toolData === 'redactRemote'
+    ? 'When you call a LOCAL tool the placeholder is automatically replaced with the real '
+      + 'value before the tool runs; REMOTE (MCP) tools deliberately receive the placeholder '
+      + 'to keep private data off third-party servers. '
+    : 'When you call ANY tool, these placeholders are AUTOMATICALLY replaced with the real '
+      + 'values before the tool executes — the tool receives the TRUE value and returns correct '
+      + 'results. ';
+  const rules =
+    'So: CALL THE TOOL using the placeholder exactly as written, as if it were the real value. '
+    + 'Do NOT say you cannot see the real value, do NOT ask the user to re-type it, and do NOT '
+    + 'refuse on privacy grounds — the lookup will work. The real values are restored in your '
+    + 'final answer automatically, so write your answer using the placeholders too.';
+  return intro + remote + rules;
+}
+
 export function makeToolHarness({ vault = null, toolData = 'real', redactOpts = null, redactResults = true } = {}) {
   const on = !!vault;                       // privacy enabled for this turn?
   const redactRemote = toolData === 'redactRemote';
