@@ -1,6 +1,6 @@
 {
   "name": "@chatpanel/pii",
-  "version": "0.2.5",
+  "version": "0.2.6",
   "description": "The canonical ChatPanel privacy engine — reversible PII redaction + pseudonymization with local entity detection. Pure, dependency-free ESM shared by the ChatPanel extension, gateway, and bridge.",
   "type": "module",
   "main": "index.js",
