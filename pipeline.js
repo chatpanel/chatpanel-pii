@@ -22,10 +22,11 @@ export function effectiveTier(cfg, isPro) {
   return t === 'full' && !isPro ? 'basic' : t;
 }
 
-// Free ceiling: deterministic SECRET redaction on CHAT only, with a small
-// dictionary. Names/orgs (full tier), wider scope, an unlimited dictionary, and
-// the model layer are Pro. Enforced here as defense-in-depth.
-export const FREE_DICT_LIMIT = 3;
+// Free ceiling: a generous custom dictionary so Free users can fully experience
+// the feature. The first FREE_DICT_LIMIT entries apply; an unlimited dictionary
+// (plus wider scope and the model layer) is Pro. Enforced here as defense-in-
+// depth — the UI also surfaces the cap, but never trust the UI alone.
+export const FREE_DICT_LIMIT = 100;
 
 export function gatedDictionary(cfg, isPro) {
   const d = Array.isArray(cfg?.dictionary) ? cfg.dictionary : [];
