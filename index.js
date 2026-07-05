@@ -10,6 +10,7 @@
 //   'chatpanel-pii/pipeline.js'     pure turn orchestration + tier/scope gating
 //   'chatpanel-pii/tool-rank.js'    deterministic tool narrowing (auto mode)
 //   'chatpanel-pii/sanitize.js'     Unicode de-steganography (strip invisible/format chars)
+//   'chatpanel-pii/net.js'          SSRF host classifier + outbound-URL guard
 
 export * from './pii-redact.js';
 export * from './pii-detect.js';
@@ -17,3 +18,4 @@ export * from './pipeline.js';
 export * from './tool-rank.js';
 export * from './tool-harness.js';
 export * from './sanitize.js';
+export * from './net.js';

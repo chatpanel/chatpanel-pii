@@ -9,7 +9,7 @@
 // settings.ui.piiRedaction, the module-level Pro entitlement, and chrome storage.
 // Those wrap these pure functions with host-specific config.
 
-import { redactText, restoreText, restoreWithAliases } from './pii-redact.js';
+import { redactText, restoreText, restoreWithAliases, redactResultShape } from './pii-redact.js';
 
 export function redactionEnabled(cfg) {
   return !!(cfg && cfg.mode && cfg.mode !== 'off');
@@ -122,10 +122,11 @@ export function restoreDeep(value, vault) {
   return value;
 }
 
+// Re-redact a tool result of any shape (string / { text } / array / MCP
+// { content:[{text}] }), gated once by the toolResults scope. The old path only
+// covered string + { text }, so PII in a content[] item reached the model.
 export function redactResult(result, ctx) {
-  if (typeof result === 'string') return redactToolResult(result, ctx);
-  if (result && typeof result === 'object' && typeof result.text === 'string') {
-    return { ...result, text: redactToolResult(result.text, ctx) };
-  }
-  return result;
+  const { vault, cfg, isPro = false, entities = [] } = ctx || {};
+  if (!redactionEnabled(cfg) || !vault || !gatedScope(cfg, isPro).toolResults) return result;
+  return redactResultShape(result, vault, redactOpts(cfg, isPro, entities));
 }
