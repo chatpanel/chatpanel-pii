@@ -7,7 +7,7 @@
 // Submodules are also importable directly:
 //   'chatpanel-pii/pii-redact.js'   deterministic redact/restore + vault
 //   'chatpanel-pii/pii-detect.js'   local NER / LLM entity detection
-//   'chatpanel-pii/pipeline.js'     pure turn orchestration + tier/scope gating
+//   'chatpanel-pii/pipeline.js'     pure turn orchestration + tier/scope selection
 //   'chatpanel-pii/tool-rank.js'    deterministic tool narrowing (auto mode)
 //   'chatpanel-pii/sanitize.js'     Unicode de-steganography (strip invisible/format chars)
 //   'chatpanel-pii/net.js'          SSRF host classifier + outbound-URL guard

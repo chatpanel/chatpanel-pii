@@ -5,9 +5,9 @@
 // What lives HERE (portable): redactOutbound, redactToolResult/redactResult,
 // makeStreamRestorer, restore/restoreDeep, effectiveTier + gating.
 //
-// What stays in the EXTENSION (host glue, NOT here): reading
-// settings.ui.piiRedaction, the module-level Pro entitlement, and chrome storage.
-// Those wrap these pure functions with host-specific config.
+// Host glue kept in the EXTENSION (NOT here): reading settings.ui.piiRedaction,
+// the entitlement flag, and chrome storage — those wrap these pure functions with
+// host-specific config.
 
 import { redactText, restoreText, restoreWithAliases, redactResultShape } from './pii-redact.js';
 
@@ -15,17 +15,14 @@ export function redactionEnabled(cfg) {
   return !!(cfg && cfg.mode && cfg.mode !== 'off');
 }
 
-// The entity (name/org) tier is Pro; Free silently falls back to deterministic
-// regex so the feature still does something useful without the upsell breaking.
+// The entity (name/org) tier is Pro; Free falls back to the deterministic regex tier.
 export function effectiveTier(cfg, isPro) {
   const t = cfg?.tier === 'full' ? 'full' : 'basic';
   return t === 'full' && !isPro ? 'basic' : t;
 }
 
-// Free ceiling: a small taste of the custom dictionary. The first FREE_DICT_LIMIT
-// entries apply; an unlimited dictionary (plus wider scope and the model layer) is
-// Pro. Enforced here as defense-in-depth — the UI also surfaces the cap, but never
-// trust the UI alone.
+// On Free the first FREE_DICT_LIMIT custom-dictionary entries apply; the full
+// dictionary is Pro. Enforced here as well as in the UI.
 export const FREE_DICT_LIMIT = 5;
 
 export function gatedDictionary(cfg, isPro) {
