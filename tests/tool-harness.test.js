@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createVault, redactText } from '../pii-redact.js';
-import { makeToolHarness } from '../tool-harness.js';
+import { makeToolHarness, placeholderToolNote } from '../tool-harness.js';
 
 function vaultWith() {
   const v = createVault();
@@ -45,4 +45,15 @@ test('privacy OFF (no vault): ②③④ pass through unchanged, but ⓪ selectTo
   const picked = h.selectTools(specs, 'use the wiki search', { cap: 1 });
   assert.equal(picked.length, 1);
   assert.equal(picked[0].name, 'mcp_wiki__search'); // narrowing works with privacy off
+});
+
+test('the placeholder note tells a relayed agent that only the listed tools restore placeholders', () => {
+  const plain = placeholderToolNote();
+  assert.doesNotMatch(plain, /ONLY THE TOOLS LISTED/);
+  const own = placeholderToolNote({ ownTools: true });
+  assert.match(own, /ONLY THE TOOLS LISTED IN THIS CONVERSATION restore placeholders/);
+  assert.match(own, /your own web search, shell, file or code tools — receives the placeholder text literally/);
+  assert.match(own, /call the listed tool \(for example `find`/);
+  assert.ok(own.startsWith(plain), 'the addition is a suffix — everything the API-model note says still holds');
+  assert.match(placeholderToolNote({ toolData: 'redactRemote', ownTools: true }), /REMOTE \(MCP\) tools deliberately receive the placeholder[\s\S]*ONLY THE TOOLS LISTED/);
 });
