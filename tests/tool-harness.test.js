@@ -57,3 +57,11 @@ test('the placeholder note tells a relayed agent that only the listed tools rest
   assert.ok(own.startsWith(plain), 'the addition is a suffix — everything the API-model note says still holds');
   assert.match(placeholderToolNote({ toolData: 'redactRemote', ownTools: true }), /REMOTE \(MCP\) tools deliberately receive the placeholder[\s\S]*ONLY THE TOOLS LISTED/);
 });
+
+test('a turn with no tools still learns what a placeholder is', async () => {
+  const { placeholderNote } = await import('../tool-harness.js');
+  const note = placeholderNote();
+  assert.match(note, /\[\[LOCATION_1\]\]/);
+  assert.match(note, /do not say it is unresolved/i);
+  assert.doesNotMatch(note, /CALL THE TOOL/, 'no tool to call, no instruction to call one');
+});
