@@ -11,6 +11,7 @@
 //   'chatpanel-pii/tool-rank.js'    deterministic tool narrowing (auto mode)
 //   'chatpanel-pii/sanitize.js'     Unicode de-steganography (strip invisible/format chars)
 //   'chatpanel-pii/net.js'          SSRF host classifier + outbound-URL guard
+//   'chatpanel-pii/trust.js'        who is calling a localhost server (origin → trust), pairing codes
 
 export * from './pii-redact.js';
 export * from './pii-detect.js';
@@ -19,3 +20,4 @@ export * from './tool-rank.js';
 export * from './tool-harness.js';
 export * from './sanitize.js';
 export * from './net.js';
+export * from './trust.js';

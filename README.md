@@ -29,6 +29,8 @@ real values — and they're reconstructed locally on the way back.
 | `pii-redact.js` | `createVault`, `redactText`, `restoreText`, `restoreWithAliases`, `vaultToJSON`/`vaultFromJSON`, `hasToken` | deterministic redact/restore + the per-conversation vault |
 | `pii-detect.js` | `detectEntities`, `normalizeEntities`, `EXTRACT_SYS`, … | local entity detection (any HTTP NER endpoint, or a local OpenAI-compatible LLM) |
 | `pipeline.js` | `redactOutbound`, `makeStreamRestorer`, `restore`, `restoreDeep`, `redactResult`, `effectiveTier`, `gatedDictionary`, `gatedScope` | pure turn orchestration + the free/Pro tier, scope, and dictionary gating |
+| `net.js` | `isBlockedHost`, `assertEndpointUrl`, `assertPublicWebUrl`, … | the SSRF host classifier + outbound-URL guard every ChatPanel process applies |
+| `trust.js` | `callerTrust`, `classifyOrigin`, `isPaired`, `capRunOptions`, `minReach`, `createPairingStore` | who is calling a ChatPanel localhost server (pinned extension / paired token / unpaired / local), the reach ceiling that follows, and single-use pairing codes |
 
 Import the barrel (`@chatpanel/pii`) or a submodule
 (`@chatpanel/pii/pii-redact.js`).
