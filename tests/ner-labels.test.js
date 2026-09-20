@@ -40,6 +40,33 @@ test('the ai4privacy vocabulary maps — the one that silently stopped redacting
   assert.equal(got.hunter2, 'SECRET');
 });
 
+test('the OpenAI privacy-filter vocabulary maps — the model answered and the name still leaked', () => {
+  // Seen live on 2026-09-19: POST /ner returned every span below, and /redact sent the
+  // name and the address to the model in full, the phone as [[PRIVATEPHONE_1]] (kept only
+  // by the digit-count fallback, under a type no client restores), with the detector
+  // reporting `ready · coverage: names`.
+  const got = typesOf([
+    { value: 'Jordan Blake', type: 'private_person' },
+    { value: '42 Elm Street, Springfield', type: 'private_address' },
+    { value: 'jordan.blake@example.com', type: 'private_email' },
+    { value: '555-0134', type: 'private_phone' },
+    { value: '1985-04-02', type: 'private_date' },
+    { value: 'https://social.example/u/jblake', type: 'private_url' },
+    { value: '883-201-99', type: 'account_number' },
+    { value: 'hunter2', type: 'secret' },
+  ]);
+  assert.deepEqual(got, {
+    'Jordan Blake': 'PERSON',
+    '42 Elm Street, Springfield': 'ADDRESS',
+    'jordan.blake@example.com': 'EMAIL',
+    '555-0134': 'PHONE',
+    '1985-04-02': 'ID',
+    'https://social.example/u/jblake': 'ID',
+    '883-201-99': 'ID',
+    hunter2: 'SECRET',
+  });
+});
+
 test('the older vocabularies still map', () => {
   const got = typesOf([
     { value: 'Alex Rivera', type: 'PER' },          // HF bert-base-NER

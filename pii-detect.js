@@ -56,6 +56,8 @@ export function withTimeout(promise, ms, signal) {
 //   • HF bert-base-NER       PER, ORG, LOC, MISC
 //   • Presidio               PERSON, PHONE_NUMBER, EMAIL_ADDRESS, US_SSN…
 //   • ai4privacy / multilang GIVENNAME, SURNAME, STREET, ZIPCODE, TELEPHONENUM…
+//   • OpenAI privacy-filter  private_person, private_address, private_email, private_phone,
+//                            private_date, private_url, account_number, secret
 //
 // When adding a model, run one sentence through it and map every label it returns. An
 // unrecognised label is a hole, and it is an invisible one.
@@ -63,7 +65,7 @@ function normType(t) {
   const s = String(t || 'ENTITY').toUpperCase().replace(/[^A-Z0-9]/g, '') || 'ENTITY';
   const map = {
     // People
-    PER: 'PERSON', PERSON: 'PERSON', PERSONNAME: 'PERSON',
+    PER: 'PERSON', PERSON: 'PERSON', PERSONNAME: 'PERSON', PRIVATEPERSON: 'PERSON',
     GIVENNAME: 'PERSON', FIRSTNAME: 'PERSON', MIDDLENAME: 'PERSON',
     SURNAME: 'PERSON', LASTNAME: 'PERSON', FULLNAME: 'PERSON',
     // Organisations
@@ -74,10 +76,11 @@ function normType(t) {
     CITY: 'LOCATION', STATE: 'LOCATION', COUNTY: 'LOCATION', COUNTRY: 'LOCATION',
     STREET: 'ADDRESS', BUILDINGNUM: 'ADDRESS', BUILDINGNUMBER: 'ADDRESS',
     ZIPCODE: 'ADDRESS', POSTCODE: 'ADDRESS', SECADDRESS: 'ADDRESS', ADDRESS: 'ADDRESS',
+    PRIVATEADDRESS: 'ADDRESS',
     NORP: 'GROUP',
     // Contact
-    EMAIL: 'EMAIL', EMAILADDRESS: 'EMAIL',
-    PHONE: 'PHONE', PHONENUMBER: 'PHONE', TELEPHONENUM: 'PHONE', PHONEIMEI: 'ID',
+    EMAIL: 'EMAIL', EMAILADDRESS: 'EMAIL', PRIVATEEMAIL: 'EMAIL',
+    PHONE: 'PHONE', PHONENUMBER: 'PHONE', TELEPHONENUM: 'PHONE', PRIVATEPHONE: 'PHONE', PHONEIMEI: 'ID',
     // Numbers that identify a person. These are ALWAYS redacted (see ALWAYS_KEEP), which is
     // the point of naming them rather than leaving them to the digit-count fallback.
     SOCIALNUM: 'SSN', USSSN: 'SSN', SSN: 'SSN',
@@ -86,7 +89,9 @@ function normType(t) {
     ACCOUNTNUM: 'ID', ACCOUNTNUMBER: 'ID', TAXNUM: 'ID', IDCARDNUM: 'ID',
     DRIVERLICENSENUM: 'ID', PASSPORTNUM: 'ID', VEHICLEVRM: 'ID',
     // A date of birth identifies; a plain date does not, and small models tag "today".
-    DATEOFBIRTH: 'ID', DOB: 'ID',
+    // privacy-filter's private_date is already the identifying kind (it tags "today" as O),
+    // and its private_url is a personal link — a profile, a shared doc — which identifies too.
+    DATEOFBIRTH: 'ID', DOB: 'ID', PRIVATEDATE: 'ID', PRIVATEURL: 'ID',
     // Handles and secrets
     USERNAME: 'ID', USERID: 'ID', IP: 'ID', IPADDRESS: 'ID', MAC: 'ID',
     PASSWORD: 'SECRET', APIKEY: 'SECRET', SECRET: 'SECRET',
@@ -135,6 +140,47 @@ export function normalizeEntities(data, types) {
     out.push({ value, type });
   }
   return out;
+}
+
+// CASE RECOVERY — the second pass for lowercase chat text.
+//
+// Every cased NER model is weak on a lowercase name: measured 2026-09-19, Privacy Filter
+// returned nothing for `hi. I am suresh. last time I saw you in austin…` and 1.00 for the
+// same sentence with `Suresh`; the multilingual NER tagged `Seattle` and missed `seattle`.
+// People type chat in lowercase. So a detector runs twice when the draft is lowercase-heavy:
+// once on the text, once on this re-cased copy, and the spans are unioned.
+//
+// The re-casing capitalises every word that is NOT a common word — the stop-list below —
+// so `austin` becomes `Austin` but `am` does not become `Am` (capitalising everything
+// dragged neighbours into spans: `Am Suresh`, `Priya Said`). Measured on the eight failing
+// sentences: 2 of 3 misses recovered, zero false positives on neutral prose ("summarize
+// this page about kubernetes" stays clean — `kubernetes` is capitalised and still nothing).
+//
+// LENGTH-PRESERVING BY CONSTRUCTION: only a single character is upper-cased, and only when
+// its upper-case form is one character (`ß` → `SS` would not be). So an offset into the
+// copy is the same offset into the original, and the caller takes the VALUE from the
+// original — the redactor then sees `seattle`, not `Seattle`.
+const RECASE_STOP = new Set(('a an the i am is are was were be been being to of in on at for and or but if so not no yes ok okay '
+  + 'hi hello hey you your yours me my mine we us our ours they them their he him his she her it its this that these those '
+  + 'what where when who whom why how which do does did done have has had having will would can could should may might must shall '
+  + 'there here now then last next first time day days week month year today tomorrow yesterday see saw seen say said tell told '
+  + 'go went gone come came get got give gave take took make made know knew think thought want need like just also very really '
+  + 'with from into onto over under about after before between through during without within up down out off again still '
+  + 'used use using live lived move moved work worked help please thanks thank sorry new old good bad more most some any all each '
+  + 'because as than too so such only own same other another much many few both either neither every never always often').split(/\s+/));
+
+export function recaseForDetection(text) {
+  const src = String(text || '');
+  let changed = false;
+  const out = src.replace(/(^|[^\p{L}\p{N}'’])(\p{Ll})(\p{L}*)/gu, (m, before, first, rest) => {
+    const word = first + rest;
+    if (RECASE_STOP.has(word)) return m;
+    const up = first.toUpperCase();
+    if (up.length !== 1 || up === first) return m;
+    changed = true;
+    return before + up + rest;
+  });
+  return { text: out, changed };
 }
 
 export function parseJsonLoose(s) {
