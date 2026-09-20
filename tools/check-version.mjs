@@ -36,6 +36,17 @@ for (const [file, re] of [['src/server.js', /^const VERSION = '([^']+)'/m]]) {
   }
 }
 
+// The extension keeps its version of record in the MANIFEST; package.json mirrors it, and
+// the `ext-v*` release reads the manifest. They must not drift: a bump that moves only one
+// leaves the store version behind, and CWS rejects a re-publish at a version it already has.
+{
+  const url = new URL('../extension/manifest.json', import.meta.url);
+  if (existsSync(url)) {
+    const m = JSON.parse(readFileSync(url, 'utf8')).version;
+    if (m !== version) fail(`extension/manifest.json says ${m} but package.json says ${version}. The manifest is the version of record — bump both.`);
+  }
+}
+
 // The commit's own claim. Only checked when the subject carries one, so an ordinary
 // message ("docs: …") is never blocked.
 let subject = '';

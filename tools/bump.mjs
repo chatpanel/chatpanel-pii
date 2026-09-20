@@ -33,4 +33,17 @@ for (const file of ['src/server.js']) {
   writeFileSync(url, src.replace(/^(const VERSION = ')[^']+(')/m, `$1${next}$2`));
   console.log(`  ${file}: ${current} -> ${next}`);
 }
+
+// The extension's version of record is its MANIFEST — package.json mirrors it, and the
+// `ext-v*` release reads the manifest. Bumping only package.json leaves the store version
+// behind and CWS rejects a re-publish at a version it already has.
+for (const file of ['extension/manifest.json']) {
+  const url = new URL(`../${file}`, import.meta.url);
+  if (!existsSync(url)) continue;
+  const src = readFileSync(url, 'utf8');
+  const out = src.replace(/("version"\s*:\s*")[^"]+(")/, `$1${next}$2`);
+  if (out === src) { console.error(`✗ ${file}: no version field changed`); process.exit(1); }
+  writeFileSync(url, out);
+  console.log(`  ${file}: ${current} -> ${next}`);
+}
 console.log(`${current} -> ${next}`);
