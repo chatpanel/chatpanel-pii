@@ -50,7 +50,7 @@ test('minReach picks the stricter tier and fails closed on nonsense', () => {
 });
 
 test('capRunOptions: a paired caller keeps its options; an unpaired one loses the machine-reaching ones', () => {
-  const asked = { model: 'opus', permissionMode: 'bypassPermissions', workingDir: '/', workspace: { repo: 'x' }, grants: ['push'], extraArgs: ['--x'], conversationId: 'c1' };
+  const asked = { model: 'opus', permissionMode: 'bypassPermissions', workingDir: '/', workspace: { repo: 'x' }, grants: ['push'], extraArgs: ['--x'], sandbox: { hosts: ['evil.example'] }, conversationId: 'c1' };
   assert.deepEqual(capRunOptions(asked, 'pinned'), asked);
   assert.deepEqual(capRunOptions(asked, 'token'), asked);
   const capped = capRunOptions(asked, 'unpaired');

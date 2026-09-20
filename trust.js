@@ -107,10 +107,11 @@ export function reachCeiling(trust) {
 
 // Run options an unpaired caller must never choose. Each one reaches the machine directly:
 // a working directory or worktree to read, credentials to hand the run, a permission mode
-// to escalate, argv/env to smuggle a flag through. With reach `device` the agent has no
-// filesystem anyway; stripping these is what makes that true before the engine is chosen.
+// to escalate, argv/env to smuggle a flag through, a sandbox grant to widen what the process
+// may reach on the network or write. With reach `device` the agent has no filesystem anyway;
+// stripping these is what makes that true before the engine is chosen.
 const UNPAIRED_STRIP = Object.freeze([
-  'workingDir', 'workspace', 'grants', 'connectionId', 'permissionMode', 'extraArgs', 'env', 'runEnv', 'reach',
+  'workingDir', 'workspace', 'grants', 'connectionId', 'permissionMode', 'extraArgs', 'env', 'runEnv', 'reach', 'sandbox',
 ]);
 
 /**
