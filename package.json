@@ -31,7 +31,7 @@
     "README.md"
   ],
   "scripts": {
-    "test": "node --test"
+    "test": "node tools/check-version.mjs && node --test"
   },
   "engines": {
     "node": ">=18"
