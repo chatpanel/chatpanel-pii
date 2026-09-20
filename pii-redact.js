@@ -70,6 +70,27 @@ export function isRedactionToken(value) {
 // tokens are swapped, so a coincidental "ABC_1" that isn't ours is left untouched.
 const TOLERANT_TOKEN_RE = /\[{0,2}([A-Z][A-Z0-9]*_\d+)\]{0,2}/g;
 
+// THE THIRD BRACKET. A token placed where the text already had a bracket reads as
+// `[[[ORG_1]] Quiz](url)` — a markdown link whose text starts with a token — and a model
+// copies that three-bracket shape as if it WERE the token: `[[[ORG_1]] on [[ORG_2]]:`,
+// `-google-ai-[[[ORG_1]]-reports-…`. Restoring the two inner brackets and leaving the third
+// put a `[` in front of a word, or worse inside a URL, and every citation on the page died.
+// So an extra bracket is kept only where it is doing markdown's job — the token is inside a
+// link's text, i.e. `](` follows before a `(`, `)` or line end — and dropped otherwise.
+// A leading extra `[` is markdown's when the rest of a link's text — other tokens allowed,
+// no parens, no other `[`, same line — ends in `](`; a trailing extra `]` is markdown's when
+// `(` follows it directly.
+const LINK_TEXT_AHEAD = /^(?:[^\n()[\]]|\[\[[A-Z][A-Z0-9]*_\d+\]\])*\]\(/;
+function restoreMatch(text, m, offset, value) {
+  const extraOpen = m.startsWith('[[[');
+  const extraClose = m.endsWith(']]]');
+  if (!extraOpen && !extraClose) return value;
+  const after = text.slice(offset + m.length);
+  const keepOpen = extraOpen && LINK_TEXT_AHEAD.test(extraClose ? `]${after}` : after);
+  const keepClose = extraClose && after.startsWith('(');
+  return `${keepOpen ? '[' : ''}${value}${keepClose ? ']' : ''}`;
+}
+
 // A vault is the per-conversation mapping between placeholders and originals. Keep
 // one per conversation so PERSON_1 means the same entity across turns.
 export function createVault() {
@@ -220,8 +241,12 @@ const DETECTORS = [
       const digits = m.replace(/\D/g, '');
       // Needs a separator / leading + OR be a bare 10-digit run (a typed phone like
       // 9320434444). 11+ bare digits still require formatting so long ids aren't hit.
-      return digits.length >= 7 && digits.length <= 15
-        && (/[ ().-]/.test(m) || m.trimStart().startsWith('+') || digits.length === 10);
+      if (digits.length < 7 || digits.length > 15) return false;
+      // An ISO date (`2026-09-18`, `2026-09-18-1200`) is eight digits with a separator —
+      // it passed as a phone and was redacted out of a Reuters URL path, which is a citation
+      // a reader cannot follow. A phone never starts `YYYY-MM-DD`.
+      if (/^(?:19|20)\d\d[-./](?:0[1-9]|1[0-2])[-./](?:0[1-9]|[12]\d|3[01])(?![\d])/.test(m.trimStart())) return false;
+      return /[ ().-]/.test(m) || m.trimStart().startsWith('+') || digits.length === 10;
     },
   },
   {
@@ -279,19 +304,26 @@ export function redactText(text, vault, {
       dictRules.push({ re, repl: () => d.alias });
     } else {
       const type = d.type || (d.pattern ? 'PII' : 'TERM');
-      dictRules.push({ re, repl: (m) => tokenFor(v, type, d.pattern ? m[0] : d.value) });
+      // The MATCHED text, not the entry's value: the match is case-insensitive, and a token
+      // restores to exactly one string — `wsj` inside a URL restored as `WSJ` broke the link.
+      dictRules.push({ re, repl: (m) => tokenFor(v, type, m[0]) });
     }
   }
   out = applyRulesOnce(out, dictRules);
 
   // 2) Known entities (full tier) — longest value first so "Alex Rivera" wins
-  //    before a bare "Alex". Restores to the canonical entity value.
+  //    before a bare "Alex". The match is case-insensitive so `seattle` is caught by the
+  //    `Seattle` the detector found — but the token restores to the text AS MATCHED, never
+  //    to the canonical value: a token is one string both ways, and restoring `wsj` in
+  //    `reuters.com/…-by-google-ai-wsj-reports-…` as `WSJ` made every citation on that
+  //    page a dead link. A differently-cased occurrence is its own token (ORG_1 / ORG_2);
+  //    the model loses nothing it needs, and the reader gets the page back untouched.
   if (entityTier) {
     const ents = [...(entities || [])].filter((e) => e && e.value)
       .sort((a, b) => String(b.value).length - String(a.value).length);
     for (const e of ents) {
       const re = new RegExp(`(?<![\\w])${escapeRegex(e.value)}(?![\\w])`, 'gi');
-      out = out.replace(re, () => tokenFor(v, e.type || 'PERSON', e.value));
+      out = out.replace(re, (m) => tokenFor(v, e.type || 'PERSON', m));
     }
   }
 
@@ -353,9 +385,11 @@ export function redactResultShape(raw, vault, opts) {
 // Swap placeholders back to their originals. Unknown tokens are left untouched.
 export function restoreText(text, vault) {
   if (text == null || !vault) return text;
-  return String(text).replace(TOLERANT_TOKEN_RE, (m, inner) => {
+  const src = String(text);
+  return src.replace(/\[{0,3}([A-Z][A-Z0-9]*_\d+)\]{0,3}/g, (m, inner, offset) => {
     const canonical = `[[${inner}]]`;
-    return vault.byToken.has(canonical) ? vault.byToken.get(canonical) : m;
+    if (!vault.byToken.has(canonical)) return m;
+    return restoreMatch(src, m, offset, vault.byToken.get(canonical));
   });
 }
 

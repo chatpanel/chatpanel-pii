@@ -85,3 +85,30 @@ test('H5: harness ③ re-redacts a content[] tool result before the model', () =
   assert.match(red.content[0].text, /\[\[ORG_1\]\]/);
   assert.doesNotMatch(red.content[0].text, /Microsoft/);
 });
+
+// A citation survives redaction — the three ways it did not (2026-09-19, a WSJ/Reuters page in
+// the panel): an entity matched case-insensitively inside a URL and restored to its canonical
+// case (`…-wsj-reports-…` → `…-WSJ-reports-…`, a dead link); a link bracket glued to a token
+// (`[[[ORG_1]] Quiz](url)`) echoed by the model as if it were the token, and the extra `[`
+// left in front of a word or inside a URL; an ISO date in a path taken for a phone.
+test('an entity inside a URL restores with the case it had; a date in a path is not a phone', () => {
+  const vault = createVault();
+  const src = 'See [Gemini hacked | Reuters](https://www.reuters.com/business/gemini-by-google-ai-wsj-reports-2026-09-18/) and WSJ says so; call +1 (415) 555-0100.';
+  const red = redactText(src, vault, { tier: 'full', entities: [{ value: 'WSJ', type: 'ORG' }, { value: 'Google', type: 'ORG' }] });
+  assert.doesNotMatch(red, /wsj|WSJ|google/i, 'both casings are redacted');
+  assert.match(red, /2026-09-18/, 'an ISO date is not a phone number');
+  assert.match(red, /\[\[PHONE_1\]\]/, 'a phone still is');
+  assert.equal(restoreText(red, vault), src, 'byte-for-byte, so the link works');
+  assert.notEqual(vault.byValue.get('wsj'), vault.byValue.get('WSJ'), 'a different casing is its own token, never restored to the other');
+});
+
+test('a bracket the model echoed from `[[[TOKEN]]` is dropped; one that is markdown\'s is kept', () => {
+  const vault = createVault();
+  const t = (value, type = 'ORG') => { redactText(value, vault, { tier: 'full', entities: [{ value, type }] }); return vault.byValue.get(value); };
+  const news = t('news'); const wsj = t('wsj'); const google = t('Google'); const News = t('News'); const WSJ = t('WSJ');
+  const model = `Today's [${news} on [${WSJ}: see ([2](https://www.reuters.com/business/gemini-by-${google}-ai-[${wsj}-reports-2026-09-18/)) and www.[${wsj}.com and **[${google}'s response:** — [${News} Print Edition](https://x) and [${News} and ${WSJ}](https://y) and [see ${WSJ}](z).`;
+  assert.equal(restoreText(model, vault),
+    "Today's news on WSJ: see ([2](https://www.reuters.com/business/gemini-by-Google-ai-wsj-reports-2026-09-18/)) and www.wsj.com and **Google's response:** — [News Print Edition](https://x) and [News and WSJ](https://y) and [see WSJ](z).");
+  // The one- and no-bracket forms a small model emits still restore (unchanged behaviour).
+  assert.equal(restoreText(`${WSJ.slice(1, -1)} and ${WSJ.slice(2, -2)}`, vault), 'WSJ and WSJ');
+});
