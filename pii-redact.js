@@ -430,15 +430,35 @@ export function restoreWithAliases(text, vault) {
  * the ones it could not, so the caller can decide (mask, warn, log) rather than silently
  * shipping `[[PERSON_5]]` to a person reading about their own colleagues.
  */
+// What an unresolvable token is shown as. A reader gets a word, not machine syntax.
+const READABLE = Object.freeze({
+  PERSON: 'someone', EMAIL: 'an email address', PHONE: 'a phone number',
+  ADDRESS: 'an address', ORG: 'an organisation', URL: 'a link', IP: 'an IP address',
+  CARD: 'a card number', SSN: 'an ID number', DATE: 'a date', ID: 'an identifier',
+});
+
+/**
+ * Resolve every placeholder for display, and report the ones that could not be.
+ *
+ * AN UNRESOLVED TOKEN IS NEVER SHOWN AS ITSELF. It used to be — the reasoning was that the
+ * reader should get the text as it came and `unresolved` would tell us a path was leaking.
+ * In practice the reader got `[[PERSON_1]] (the Ms Graph MCP server)` in the middle of an
+ * answer: unreadable, and alarming in a product whose whole claim is that it handles
+ * personal data carefully. The report is what tells us; the sentence is what they read.
+ *
+ * The vault is in memory, so this is not rare: a reply rendered after a reload, a model
+ * echoing a token shape it was taught, a placeholder minted in a turn whose vault is gone.
+ * None of those should reach a person as `[[TYPE_n]]`.
+ */
 export function scrubPlaceholders(text, vault) {
   const src = String(text ?? '');
   if (!src) return { text: src, unresolved: [] };
   const unresolved = [];
-  const out = src.replace(TOKEN_RE, (match) => {
+  const out = src.replace(TOKEN_RE, (match, type) => {
     const value = vault?.byToken?.get(match);
     if (value != null) return value;
     unresolved.push(match);
-    return match;
+    return READABLE[type] || 'redacted';
   });
   TOKEN_RE.lastIndex = 0;
   return { text: out, unresolved };

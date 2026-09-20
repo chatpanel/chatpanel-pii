@@ -112,3 +112,37 @@ test('a bracket the model echoed from `[[[TOKEN]]` is dropped; one that is markd
   // The one- and no-bracket forms a small model emits still restore (unchanged behaviour).
   assert.equal(restoreText(`${WSJ.slice(1, -1)} and ${WSJ.slice(2, -2)}`, vault), 'WSJ and WSJ');
 });
+
+// ── An unresolvable placeholder is a word, not machine syntax ────────────────
+//
+// The vault is in memory, so this is not rare: a reply rendered after a reload, a model
+// echoing a token shape it was taught, a placeholder minted in a turn whose vault is gone.
+// It used to be shown as itself, and a reader got "[[PERSON_1]] (the Ms Graph MCP server)"
+// in the middle of an answer — unreadable, and alarming in a product whose whole claim is
+// that it handles personal data carefully.
+test('scrubPlaceholders resolves what it can and renders the rest readably', async () => {
+  const { scrubPlaceholders } = await import('../pii-redact.js');
+  const vault = createVault();
+  vault.byToken.set('[[PERSON_2]]', 'Alex Rivera');
+
+  const { text, unresolved } = scrubPlaceholders(
+    '[[PERSON_1]] met [[PERSON_2]] about [[EMAIL_9]] on [[PHONE_3]]', vault,
+  );
+  // What was known restores exactly.
+  assert.match(text, /met Alex Rivera about/);
+  // What was not reads as a word, and the machine syntax is gone entirely.
+  assert.equal(text, 'someone met Alex Rivera about an email address on a phone number');
+  assert.doesNotMatch(text, /\[\[/, 'no reader ever sees a placeholder');
+
+  // The report is what tells us a path is leaking — that was the reason for showing the
+  // raw token, and it is kept.
+  assert.deepEqual(unresolved, ['[[PERSON_1]]', '[[EMAIL_9]]', '[[PHONE_3]]']);
+
+  // A type we have no word for still does not leak its shape.
+  assert.equal(scrubPlaceholders('[[WIDGET_4]]', vault).text, 'redacted');
+  // Nothing to do is nothing done.
+  assert.deepEqual(scrubPlaceholders('', vault), { text: '', unresolved: [] });
+  assert.equal(scrubPlaceholders('plain text', vault).text, 'plain text');
+  // No vault at all: everything is unresolvable, and everything is still readable.
+  assert.equal(scrubPlaceholders('[[PERSON_1]]', null).text, 'someone');
+});
