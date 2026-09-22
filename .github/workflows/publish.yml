@@ -29,8 +29,11 @@ jobs:
     #
     # This is the route that PUBLISHES, not tools/publish-npm.mjs, because the ordering is right
     # by construction: the workflow runs from the commit that was pushed, so npm can never carry
-    # a build whose source is only on somebody's laptop. It also needs no npm token and no 2FA
-    # prompt — publishing here is OIDC trusted publishing.
+    # a build whose source is only on somebody's laptop.
+    #
+    # ON A GITHUB-HOSTED RUNNER it needs no token and no 2FA prompt — OIDC trusted publishing.
+    # ON OURS it cannot: npm does not support trusted publishing from self-hosted runners, so
+    # the publish step falls back to an NPM_TOKEN secret. See that step.
     #
     # NEVER point this at a self-hosted runner from a PUBLIC repo with a pull_request trigger:
     # a fork's PR would run its own code on that machine.
@@ -47,7 +50,33 @@ jobs:
         run: npm install -g npm@latest
 
       - name: Publish if the version is new
+        env:
+          RELEASE_RUNNER: ${{ vars.RELEASE_RUNNER }}
+          # actions/setup-node wrote an npmrc (under RUNNER_TEMP, not the machine's own) whose
+          # token IS this variable, so handing it over needs no file to be written — which
+          # matters on a self-hosted runner, where `npm config set` would edit the owner's real
+          # ~/.npmrc. Absent, it is empty, exactly as before.
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
+          # HOW THIS JOB AUTHENTICATES depends on where it runs, and it has to:
+          # npm's OIDC trusted publishing does NOT support self-hosted runners ("self-hosted
+          # runners are not currently supported", docs.npmjs.com/trusted-publishers). So on a
+          # GitHub-hosted runner this publishes with no token at all, and on ours it needs the
+          # NPM_TOKEN secret. When hosted runners are available again, clear RELEASE_RUNNER and
+          # this goes back to being tokenless.
+          #
+          # A token cannot publish a package whose npm 2FA setting is `mfa=publish` — that
+          # rejects every token, whatever its rights — so a package published this way must be
+          # on `mfa=automation`. That is a per-package setting, changed on npmjs.com.
+          if [ -n "$RELEASE_RUNNER" ]; then
+            if [ -z "$NODE_AUTH_TOKEN" ]; then
+              echo "::error title=No NPM_TOKEN::RELEASE_RUNNER is set, so this job is on a self-hosted runner, where npm trusted publishing does not work. Add an NPM_TOKEN repo secret (this org is on GitHub Free, where ORG secrets reach public repos only — it must be a REPO secret), or clear RELEASE_RUNNER to publish from a GitHub-hosted runner by OIDC."
+              exit 1
+            fi
+            echo "self-hosted runner: authenticating with the NPM_TOKEN secret (trusted publishing is hosted-only)"
+          else
+            echo "GitHub-hosted runner: publishing by OIDC trusted publishing, no token"
+          fi
           NAME=$(node -p "require('./package.json').name")
           VER=$(node -p "require('./package.json').version")
           if npm view "$NAME@$VER" version >/dev/null 2>&1; then
