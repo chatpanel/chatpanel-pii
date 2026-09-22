@@ -21,7 +21,20 @@ permissions:
 
 jobs:
   publish:
-    runs-on: ubuntu-latest
+    # WHICH RUNNER: GitHub's by default; the repo variable RELEASE_RUNNER (e.g. `self-hosted`)
+    # moves it to a machine of ours. Set it when GitHub-hosted jobs cannot start — since
+    # 2026-09-21 every hosted job on this org is refused at once ("recent account payments have
+    # failed or your spending limit needs to be increased"), while a self-hosted job on the same
+    # org runs normally (proved: chatpanel-extension run 35697225331, runner mac-local).
+    #
+    # This is the route that PUBLISHES, not tools/publish-npm.mjs, because the ordering is right
+    # by construction: the workflow runs from the commit that was pushed, so npm can never carry
+    # a build whose source is only on somebody's laptop. It also needs no npm token and no 2FA
+    # prompt — publishing here is OIDC trusted publishing.
+    #
+    # NEVER point this at a self-hosted runner from a PUBLIC repo with a pull_request trigger:
+    # a fork's PR would run its own code on that machine.
+    runs-on: ${{ vars.RELEASE_RUNNER || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@v4
 
