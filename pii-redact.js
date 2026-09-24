@@ -318,14 +318,10 @@ export function redactText(text, vault, {
   //    `reuters.com/…-by-google-ai-wsj-reports-…` as `WSJ` made every citation on that
   //    page a dead link. A differently-cased occurrence is its own token (ORG_1 / ORG_2);
   //    the model loses nothing it needs, and the reader gets the page back untouched.
-  //    A STRUCTURED MATCH OUTRANKS A STATISTICAL ONE. Entities used to be substituted here,
-  //    before the detectors below had ever looked at the text, so a name the model found
-  //    INSIDE a structured value destroyed it: `alex@example.com` with a PER span on `alex`
-  //    went upstream as `[[PER_1]]@example.com` — the address never tokenized and the domain
-  //    sent in the clear. A detector knows an email is an email; NER is guessing that `alex`
-  //    is a person. So the detectors claim their spans FIRST (below), and an entity that
-  //    would cut into one is dropped — it is already covered by the token that replaces the
-  //    whole value. Everywhere else entities behave exactly as before.
+  //    Entities are applied in (4), AFTER the detectors below have claimed their spans: a
+  //    detector knows an email is an email, NER is guessing that `alex` is a person, and
+  //    substituting here first turned `alex@example.com` into `[[PER_1]]@example.com` —
+  //    address not tokenized, domain in the clear.
 
   // 3) Deterministic detectors (all tiers). Detect against a CONFUSABLES SKELETON so
   //    homoglyph-obfuscated values (Cyrillic/Greek/fullwidth Latin look-alikes) match
@@ -347,11 +343,10 @@ export function redactText(text, vault, {
     }
   }
 
-  // 4) The entities, now that the structured spans are known. Longest value first, so
-  //    "Alex Rivera" wins before a bare "Alex"; an entity overlapping a detector's span
-  //    (or a longer entity already claimed) is skipped. The token is minted HERE, in that
-  //    same longest-first order, so a text's ORG_1/ORG_2 are the ones it always had —
-  //    numbering is per type, and the detectors below mint their own.
+  // 4) The entities, now that the structured spans are known. Longest value first ("Alex
+  //    Rivera" before a bare "Alex"); one overlapping a claimed span is dropped, already
+  //    covered by the token replacing the whole value. Minted here, in that same order, so
+  //    ORG_1/ORG_2 are the ones the text always had.
   if (entityTier) {
     const ents = [...(entities || [])].filter((e) => e && e.value)
       .sort((a, b) => String(b.value).length - String(a.value).length);
