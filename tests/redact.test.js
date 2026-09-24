@@ -146,3 +146,57 @@ test('scrubPlaceholders resolves what it can and renders the rest readably', asy
   // No vault at all: everything is unresolvable, and everything is still readable.
   assert.equal(scrubPlaceholders('[[PERSON_1]]', null).text, 'someone');
 });
+
+// ── A STRUCTURED MATCH OUTRANKS A STATISTICAL ONE ───────────────────────────
+//
+// Entities used to be substituted before the deterministic detectors had looked at the text,
+// so a name the model found INSIDE a structured value destroyed it. Found on 2026-09-24 in
+// the shipping extension (providers.js feeds NER output straight into redactOutbound): a
+// user typing an email at full tier sent `[[PER_1]]@example.com` upstream — the address
+// never tokenized, the domain in the clear, and with real NER spans the message text
+// mangled as well. The detectors claim their spans first now.
+
+test('a PERSON span inside an email does not break the email', () => {
+  const v = createVault();
+  const src = 'look up alex@example.com';
+  const out = redactText(src, v, { tier: 'full', entities: [{ value: 'alex', type: 'PER' }] });
+  assert.match(out, /\[\[EMAIL_1\]\]/, 'the whole address is one token');
+  assert.doesNotMatch(out, /PER_/, 'the name inside it is not claimed separately');
+  assert.doesNotMatch(out, /example\.com/, 'and the domain never goes out in the clear');
+  assert.equal(restoreText(out, v), src, 'byte-for-byte');
+});
+
+test('a sloppy NER span across whitespace cannot mangle two addresses', () => {
+  // Real ner-engine output for this sentence: it merged "com and mail jordan" into one ORG.
+  const v = createVault();
+  const src = 'look up alex@example.com and mail jordan@corp.example';
+  const out = redactText(src, v, {
+    tier: 'full',
+    entities: [{ value: 'alex', type: 'PER' }, { value: 'com and mail jordan', type: 'ORG' }, { value: 'corp', type: 'ORG' }],
+  });
+  assert.equal(out, 'look up [[EMAIL_1]] and mail [[EMAIL_2]]');
+  assert.equal(restoreText(out, v), src, 'byte-for-byte — the sentence is not rewritten');
+});
+
+test('the same rule protects a phone and a card from a name-shaped span', () => {
+  const v = createVault();
+  const src = 'call +1 (415) 555-0100 or charge 4111 1111 1111 1111';
+  const out = redactText(src, v, { tier: 'full', entities: [{ value: '415', type: 'ORG' }, { value: '1111', type: 'ORG' }] });
+  assert.match(out, /\[\[PHONE_1\]\]/);
+  assert.match(out, /\[\[CARD_1\]\]/);
+  assert.doesNotMatch(out, /ORG_/, 'neither digit run is carved out of the value around it');
+  assert.equal(restoreText(out, v), src);
+});
+
+test('an entity that overlaps NOTHING structured is redacted exactly as before', () => {
+  const v = createVault();
+  const src = 'Alex Rivera works at Microsoft with Alex';
+  const out = redactText(src, v, {
+    tier: 'full',
+    entities: [{ value: 'Alex Rivera', type: 'PERSON' }, { value: 'Microsoft', type: 'ORG' }, { value: 'Alex', type: 'PERSON' }],
+  });
+  assert.doesNotMatch(out, /Rivera|Microsoft/, 'the names are gone');
+  // Longest-first still wins: "Alex Rivera" is one token, the trailing bare "Alex" another.
+  assert.match(out, /\[\[PERSON_1\]\] works at \[\[ORG_1\]\] with \[\[PERSON_2\]\]/);
+  assert.equal(restoreText(out, v), src);
+});

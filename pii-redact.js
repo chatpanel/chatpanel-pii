@@ -318,14 +318,14 @@ export function redactText(text, vault, {
   //    `reuters.com/…-by-google-ai-wsj-reports-…` as `WSJ` made every citation on that
   //    page a dead link. A differently-cased occurrence is its own token (ORG_1 / ORG_2);
   //    the model loses nothing it needs, and the reader gets the page back untouched.
-  if (entityTier) {
-    const ents = [...(entities || [])].filter((e) => e && e.value)
-      .sort((a, b) => String(b.value).length - String(a.value).length);
-    for (const e of ents) {
-      const re = new RegExp(`(?<![\\w])${escapeRegex(e.value)}(?![\\w])`, 'gi');
-      out = out.replace(re, (m) => tokenFor(v, e.type || 'PERSON', m));
-    }
-  }
+  //    A STRUCTURED MATCH OUTRANKS A STATISTICAL ONE. Entities used to be substituted here,
+  //    before the detectors below had ever looked at the text, so a name the model found
+  //    INSIDE a structured value destroyed it: `alex@example.com` with a PER span on `alex`
+  //    went upstream as `[[PER_1]]@example.com` — the address never tokenized and the domain
+  //    sent in the clear. A detector knows an email is an email; NER is guessing that `alex`
+  //    is a person. So the detectors claim their spans FIRST (below), and an entity that
+  //    would cut into one is dropped — it is already covered by the token that replaces the
+  //    whole value. Everywhere else entities behave exactly as before.
 
   // 3) Deterministic detectors (all tiers). Detect against a CONFUSABLES SKELETON so
   //    homoglyph-obfuscated values (Cyrillic/Greek/fullwidth Latin look-alikes) match
@@ -346,12 +346,35 @@ export function redactText(text, vault, {
       taken.push({ start, end, type: det.type });
     }
   }
+
+  // 4) The entities, now that the structured spans are known. Longest value first, so
+  //    "Alex Rivera" wins before a bare "Alex"; an entity overlapping a detector's span
+  //    (or a longer entity already claimed) is skipped. The token is minted HERE, in that
+  //    same longest-first order, so a text's ORG_1/ORG_2 are the ones it always had —
+  //    numbering is per type, and the detectors below mint their own.
+  if (entityTier) {
+    const ents = [...(entities || [])].filter((e) => e && e.value)
+      .sort((a, b) => String(b.value).length - String(a.value).length);
+    for (const e of ents) {
+      const re = new RegExp(`(?<![\\w])${escapeRegex(e.value)}(?![\\w])`, 'gi');
+      re.lastIndex = 0;
+      let m;
+      while ((m = re.exec(out)) !== null) {
+        if (m[0].length === 0) { re.lastIndex++; continue; }
+        const start = m.index, end = start + m[0].length;
+        if (overlaps(start, end)) continue;
+        // As matched, never the canonical value: a token is one string both ways.
+        taken.push({ start, end, type: e.type || 'PERSON', token: tokenFor(v, e.type || 'PERSON', m[0]) });
+      }
+    }
+  }
+
   if (taken.length) {
     taken.sort((a, b) => a.start - b.start);
     let rebuilt = '';
     let pos = 0;
     for (const t of taken) {
-      rebuilt += out.slice(pos, t.start) + tokenFor(v, t.type, out.slice(t.start, t.end));
+      rebuilt += out.slice(pos, t.start) + (t.token || tokenFor(v, t.type, out.slice(t.start, t.end)));
       pos = t.end;
     }
     out = rebuilt + out.slice(pos);
