@@ -311,19 +311,7 @@ export function redactText(text, vault, {
   }
   out = applyRulesOnce(out, dictRules);
 
-  // 2) Known entities (full tier) — longest value first so "Alex Rivera" wins
-  //    before a bare "Alex". The match is case-insensitive so `seattle` is caught by the
-  //    `Seattle` the detector found — but the token restores to the text AS MATCHED, never
-  //    to the canonical value: a token is one string both ways, and restoring `wsj` in
-  //    `reuters.com/…-by-google-ai-wsj-reports-…` as `WSJ` made every citation on that
-  //    page a dead link. A differently-cased occurrence is its own token (ORG_1 / ORG_2);
-  //    the model loses nothing it needs, and the reader gets the page back untouched.
-  //    Entities are applied in (4), AFTER the detectors below have claimed their spans: a
-  //    detector knows an email is an email, NER is guessing that `alex` is a person, and
-  //    substituting here first turned `alex@example.com` into `[[PER_1]]@example.com` —
-  //    address not tokenized, domain in the clear.
-
-  // 3) Deterministic detectors (all tiers). Detect against a CONFUSABLES SKELETON so
+  // 2) Deterministic detectors (all tiers), BEFORE the entities. Detect against a CONFUSABLES SKELETON so
   //    homoglyph-obfuscated values (Cyrillic/Greek/fullwidth Latin look-alikes) match
   //    the ASCII regexes — but REDACT the ORIGINAL span. The fold is 1:1 per code point,
   //    so a skeleton match's indices line up with `out`, and legitimate non-Latin text
@@ -343,10 +331,17 @@ export function redactText(text, vault, {
     }
   }
 
-  // 4) The entities, now that the structured spans are known. Longest value first ("Alex
-  //    Rivera" before a bare "Alex"); one overlapping a claimed span is dropped, already
-  //    covered by the token replacing the whole value. Minted here, in that same order, so
-  //    ORG_1/ORG_2 are the ones the text always had.
+  // 3) Known entities (full tier), now that the structured spans are known. A detector
+  //    knows an email is an email; NER is GUESSING that `alex` is a person — so an entity
+  //    overlapping a claimed span is dropped, already covered by the token replacing the
+  //    whole value. Substituting these first turned `alex@example.com` into
+  //    `[[PER_1]]@example.com`: address not tokenized, domain in the clear.
+  //    Longest value first, so "Alex Rivera" wins before a bare "Alex". The match is
+  //    case-insensitive so `seattle` is caught by the `Seattle` the detector found — but
+  //    the token restores AS MATCHED, never to the canonical value: restoring `wsj` in
+  //    `reuters.com/…-by-google-ai-wsj-reports-…` as `WSJ` made every citation on that page
+  //    a dead link. A differently-cased occurrence is its own token (ORG_1 / ORG_2). Minted
+  //    here, in that same longest-first order, so the numbering is what it always was.
   if (entityTier) {
     const ents = [...(entities || [])].filter((e) => e && e.value)
       .sort((a, b) => String(b.value).length - String(a.value).length);
