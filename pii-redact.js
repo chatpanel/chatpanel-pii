@@ -311,7 +311,8 @@ export function redactText(text, vault, {
   }
   out = applyRulesOnce(out, dictRules);
 
-  // 2) Deterministic detectors (all tiers), BEFORE the entities. Detect against a CONFUSABLES SKELETON so
+  // 2) Deterministic detectors (all tiers), BEFORE the entities — see (3) for why that
+  //    order is load-bearing rather than incidental. Detect against a CONFUSABLES SKELETON so
   //    homoglyph-obfuscated values (Cyrillic/Greek/fullwidth Latin look-alikes) match
   //    the ASCII regexes — but REDACT the ORIGINAL span. The fold is 1:1 per code point,
   //    so a skeleton match's indices line up with `out`, and legitimate non-Latin text
@@ -331,11 +332,29 @@ export function redactText(text, vault, {
     }
   }
 
-  // 3) Known entities (full tier), now that the structured spans are known. A detector
-  //    knows an email is an email; NER is GUESSING that `alex` is a person — so an entity
-  //    overlapping a claimed span is dropped, already covered by the token replacing the
-  //    whole value. Substituting these first turned `alex@example.com` into
-  //    `[[PER_1]]@example.com`: address not tokenized, domain in the clear.
+  // 3) Known entities (full tier) — AFTER the detectors above, and that is the whole point.
+  //
+  //    A STRUCTURED MATCH OUTRANKS A STATISTICAL ONE. A detector KNOWS an email is an email:
+  //    it matched a shape. NER is GUESSING that `alex` is a person, and a guess that lands
+  //    inside a structured value must not be allowed to carve it open. These used to be
+  //    substituted before the detectors had looked at the text at all, and the result was a
+  //    leak:
+  //
+  //        look up alex@example.com   + a PER span on `alex`
+  //        ->  look up [[PER_1]]@example.com
+  //
+  //    The address is never tokenized and the domain goes upstream in the clear. With real
+  //    detector output it also rewrote the sentence — two addresses came back as
+  //    `[[PER_1]]@example.[[ORG_1]]@[[ORG_2]].example`, because the model had merged
+  //    "com and mail jordan" into a single ORG span across whitespace. That shipped: the
+  //    extension feeds its NER output straight into this function, and full tier is the tier
+  //    the detector switches on by itself.
+  //
+  //    So an entity overlapping a span already claimed above is DROPPED, not trimmed — it is
+  //    already covered by the token replacing the whole value, and a partial redaction of a
+  //    structured value is worse than none. An entity overlapping nothing behaves exactly as
+  //    it always did:
+  //
   //    Longest value first, so "Alex Rivera" wins before a bare "Alex". The match is
   //    case-insensitive so `seattle` is caught by the `Seattle` the detector found — but
   //    the token restores AS MATCHED, never to the canonical value: restoring `wsj` in
