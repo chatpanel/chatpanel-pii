@@ -63,7 +63,9 @@ function unmapIpv4(h) {
   return [x[6] >> 8, x[6] & 255, x[7] >> 8, x[7] & 255].join('.');
 }
 
-const norm = (hostname) => unmapIpv4(String(hostname || '').toLowerCase().replace(/^\[|\]$/g, ''));
+// .trim() is part of the guard, not tidiness: an all-whitespace host used to reach the
+// "no rule matched, therefore public" exit instead of the empty-host fail-closed one.
+const norm = (hostname) => unmapIpv4(String(hostname || '').trim().toLowerCase().replace(/^\[|\]$/g, ''));
 
 // Loopback = this host's own services (127.0.0.0/8, ::1, localhost, *.localhost).
 export function isLoopbackHost(hostname) {
