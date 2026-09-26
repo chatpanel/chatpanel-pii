@@ -130,9 +130,17 @@ export function isPublicSourceTool(name) {
 // tool called with `{action:'web_search'}` must stay itself — else any private tool's result
 // could be passed off as a public one.
 export function realToolName(name, input, hiddenVia) {
-  const action = input && typeof input === 'object' ? input.action : null;
-  if (typeof action !== 'string' || !action || action === name) return name;
+  const action = actionOf(input);
+  if (!action || action === name) return name;
   return hiddenVia instanceof Map && hiddenVia.get(action) === name ? action : name;
+}
+
+// The `action` a call names, from parsed arguments or a relayed call's JSON string.
+function actionOf(input) {
+  let v = input;
+  if (typeof v === 'string') { try { v = JSON.parse(v); } catch { return ''; } }
+  const action = v && typeof v === 'object' ? v.action : null;
+  return typeof action === 'string' ? action : '';
 }
 
 export function makeToolHarness({ vault = null, toolData = 'real', redactOpts = null, redactResults = true, remoteTools = null, hiddenVia = null } = {}) {
@@ -145,11 +153,15 @@ export function makeToolHarness({ vault = null, toolData = 'real', redactOpts = 
   const remoteByName = typeof remoteTools === 'function' ? remoteTools
     : (remoteTools instanceof Set ? (name) => remoteTools.has(name)
       : isRemoteToolName);
-  // Remote if the dispatcher OR the tool behind it is: either way only adds redaction.
+  // Remote if the dispatcher OR the tool it names is. Here `action` is believed WITHOUT the
+  // hiddenVia check, and a JSON string is read too: in this direction a wrong answer only adds
+  // redaction, and the gateway has neither a toolset nor parsed arguments — it sees
+  // `mcp {"action":"mcp_jira__issue",…}` or `tools {…}`, which the `mcp_` test alone missed,
+  // so "redact remote" put the real values back into a third-party call (2026-09-25).
   const isRemoteTool = (name, input) => {
     if (remoteByName(name)) return true;
-    const real = realToolName(name, input, hiddenVia);
-    return real !== name && remoteByName(real);
+    const action = actionOf(input);
+    return !!action && action !== name && remoteByName(action);
   };
   return {
     enabled: on,

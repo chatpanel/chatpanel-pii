@@ -70,3 +70,20 @@ test('a remote tool behind a local-named dispatcher keeps its args redacted unde
   assert.equal(harness.realToolName('data', args), 'mcp_jira__issue');
   assert.equal(harness.realToolName('other', args), 'other');
 });
+
+// THE GATEWAY has no toolset and sees the relayed call's arguments as a JSON STRING, named by
+// the dispatcher or the hub. The `mcp_` test alone missed both, so under "redact remote" the
+// gateway restored the real value into a call bound for a third-party server.
+test('"redact remote" keeps placeholders in a dispatched remote call, even as a JSON string with no toolset', () => {
+  const vault = createVault();
+  const harness = makeToolHarness({ vault, toolData: 'redactRemote' }); // the gateway's harness
+  for (const name of ['mcp', 'tools']) {
+    const args = JSON.stringify({ action: 'mcp_jira__issue_create', args: { summary: 'Call [[PERSON_1]]' } });
+    assert.equal(harness.isRemoteTool(name, args), true, `${name} → mcp_… is remote`);
+    assert.equal(harness.toTool(name, args), args, `${name} → mcp_…: the placeholder stays`);
+  }
+  assert.equal(harness.isRemoteTool('tools', JSON.stringify({ action: 'history_search' })), false, 'a local action is not');
+  assert.equal(harness.isRemoteTool('tools', 'not json'), false);
+  // …but a string never makes a result PUBLIC: that direction needs the toolset's word.
+  assert.equal(harness.realToolName('find', JSON.stringify({ action: 'web_search' })), 'find');
+});
