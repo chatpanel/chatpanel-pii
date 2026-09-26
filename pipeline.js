@@ -49,9 +49,16 @@ export function redactOutbound({ messages, system, vault, cfg, isPro = false, en
   if (!redactionEnabled(cfg) || !vault) return { messages, system };
   const opts = redactOpts(cfg, isPro, entities);
   const scope = gatedScope(cfg, isPro);
+  // Content is a string, or — for a message carrying an image — a list of parts (OpenAI
+  // `{type:'text'|'image_url'}`, Anthropic `{type:'text'|'image'}`). Each text part is redacted;
+  // an image part passes as it is. Forcing the list through redactText made it the literal
+  // "[object Object],[object Object]" and the model never saw the picture or the question.
+  const redactContent = (content) => (Array.isArray(content)
+    ? content.map((p) => (p && p.type === 'text' && typeof p.text === 'string' ? { ...p, text: redactText(p.text, vault, opts) } : p))
+    : redactText(content, vault, opts));
   const redactMsg = (m) => {
     const copy = { ...m };
-    if (scope.chat !== false && m.content) copy.content = redactText(m.content, vault, opts);
+    if (scope.chat !== false && m.content) copy.content = redactContent(m.content);
     if (Array.isArray(m.attachments)) {
       copy.attachments = m.attachments.map((a) => {
         if (a.kind === 'image' || !a.text) return a;
