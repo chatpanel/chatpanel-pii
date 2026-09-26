@@ -119,19 +119,42 @@ export function isPublicSourceTool(name) {
   return PUBLIC_SOURCE_TOOLS.has(String(name || '').toLowerCase());
 }
 
-export function makeToolHarness({ vault = null, toolData = 'real', redactOpts = null, redactResults = true, remoteTools = null } = {}) {
+// The tool a call really runs. A DISPATCHER (`find`, `mcp`, `page`) is one registered name
+// over many tools, called as `find {action:'web_search', args}` — so every name-keyed rule
+// here saw `find`, and public search results were redacted like the user's history: `wsj`
+// in a dictionary turned `https://www.wsj.com/…` into `https://www.[[ORG_2]].com/…` and the
+// model could not read its own sources (2026-09-25).
+//
+// `action` is only believed when the toolset's `hiddenVia` (tool → the dispatcher that hides
+// it) says THIS dispatcher reaches THAT tool. Arguments are the model's to choose, so a plain
+// tool called with `{action:'web_search'}` must stay itself — else any private tool's result
+// could be passed off as a public one.
+export function realToolName(name, input, hiddenVia) {
+  const action = input && typeof input === 'object' ? input.action : null;
+  if (typeof action !== 'string' || !action || action === name) return name;
+  return hiddenVia instanceof Map && hiddenVia.get(action) === name ? action : name;
+}
+
+export function makeToolHarness({ vault = null, toolData = 'real', redactOpts = null, redactResults = true, remoteTools = null, hiddenVia = null } = {}) {
   const on = !!vault;                       // privacy enabled for this turn?
   const redactRemote = toolData === 'redactRemote';
   // How we decide a tool is REMOTE (must not receive real PII under redactRemote).
   // Prefer an EXPLICIT set/predicate the caller derived from the toolset (a remote
   // tool not named mcp_* would otherwise be misclassified as local and get real
   // values); fall back to the mcp_* name heuristic when the caller passes nothing.
-  const isRemoteTool = typeof remoteTools === 'function' ? remoteTools
+  const remoteByName = typeof remoteTools === 'function' ? remoteTools
     : (remoteTools instanceof Set ? (name) => remoteTools.has(name)
       : isRemoteToolName);
+  // Remote if the dispatcher OR the tool behind it is: either way only adds redaction.
+  const isRemoteTool = (name, input) => {
+    if (remoteByName(name)) return true;
+    const real = realToolName(name, input, hiddenVia);
+    return real !== name && remoteByName(real);
+  };
   return {
     enabled: on,
     isRemoteTool,
+    realToolName: (name, input) => realToolName(name, input, hiddenVia),
 
     // ⓪ Always-on tool selection (privacy-independent). `available` is any spec
     // list; `opts` forwards { cap, keep, name, description } to the shared ranker.
@@ -142,14 +165,15 @@ export function makeToolHarness({ vault = null, toolData = 'real', redactOpts = 
     // ② What the tool receives.
     toTool(name, args) {
       if (!on) return args;                                    // privacy off → already real
-      if (redactRemote && isRemoteTool(name)) return args;      // keep PII off remote MCP
+      if (redactRemote && isRemoteTool(name, args)) return args; // keep PII off remote MCP
       return restoreToolArgs(args, vault);                      // real values for the tool
     },
 
     // ③ What the model sees back (re-redacted). Walks string / { text } / array /
     // MCP { content:[{text}] } shapes so a tool result can't leak PII to the model
-    // via a nested field the old string/{text}-only path skipped.
-    toModelResult(name, raw) {
+    // via a nested field the old string/{text}-only path skipped. `input` is the call's
+    // arguments: through a dispatcher they name the tool that produced the result.
+    toModelResult(name, raw, input) {
       if (!on || !redactResults || !redactOpts) return raw;
       // PUBLIC RESULTS ARE NOT THE USER'S DATA.
       //
@@ -164,7 +188,7 @@ export function makeToolHarness({ vault = null, toolData = 'real', redactOpts = 
       // So public-source results pass through intact. Everything local or private — history,
       // meetings, notes, the user's own page, any MCP server — is redacted exactly as before,
       // which is where a leak could actually happen.
-      if (isPublicSourceTool(name)) return raw;
+      if (isPublicSourceTool(realToolName(name, input, hiddenVia))) return raw;
       return redactResultShape(raw, vault, redactOpts);
     },
 
