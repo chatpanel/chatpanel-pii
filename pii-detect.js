@@ -22,7 +22,8 @@ export function clearDetectCache() { cache.clear(); }
 
 function cacheKey(text, det) {
   let h = 5381;
-  const s = `${det?.backend}|${det?.url}|${det?.model}|${text}`;
+  // The level and the categories change the answer, so they are part of what was asked.
+  const s = `${det?.backend}|${det?.url}|${det?.model}|${det?.strictness || ''}|${JSON.stringify(det?.types || null)}|${text}`;
   for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) | 0;
   return `${s.length}:${h}`;
 }
@@ -121,9 +122,17 @@ export function quantityNotAddress(value) {
   return QUANTITY.test(v) && !HOUSE_NUMBER.test(v);
 }
 
-function keepEntity(value, type, types) {
+// HOW STRICT (`ui.piiRedaction.strictness`): 'balanced' (the default, and what an older config
+// without the key means) second-guesses the detections known to be wrong — a quantity read as
+// an address here, a headline read as a company on the gateway's re-cased pass
+// (recased-spans.js). 'strict' takes every span a detector reports: more of a question may be
+// hidden, nothing a detector found is let through.
+export const REDACTION_STRICTNESS = Object.freeze(['balanced', 'strict']);
+export const strictnessOf = (cfg) => (cfg?.strictness === 'strict' || cfg?.detection?.strictness === 'strict' ? 'strict' : 'balanced');
+
+function keepEntity(value, type, types, strictness = 'balanced') {
   const on = (k) => !types || types[k] !== false; // default on
-  if (type === 'ADDRESS' && quantityNotAddress(value)) return false;
+  if (strictness !== 'strict' && type === 'ADDRESS' && quantityNotAddress(value)) return false;
   if (ALWAYS_KEEP.has(type)) return true;
   if (type === 'PERSON') return on('person');
   if (type === 'ORG') return on('org');
@@ -134,7 +143,7 @@ function keepEntity(value, type, types) {
 
 // Normalize the many detector response shapes to [{value, type}], de-duplicated.
 // `types` (optional) is the user's category toggles {person,org,location,number}.
-export function normalizeEntities(data, types) {
+export function normalizeEntities(data, types, { strictness = 'balanced' } = {}) {
   let list = [];
   if (Array.isArray(data)) list = data;
   else if (data && Array.isArray(data.entities)) list = data.entities;
@@ -146,7 +155,7 @@ export function normalizeEntities(data, types) {
     if (!e) continue;
     const value = String(e.value ?? e.text ?? e.entity ?? e.word ?? '').trim();
     const type = normType(e.type ?? e.label ?? e.entity_group ?? e.entity_type ?? e.tag);
-    if (!value || value.length > 200 || !keepEntity(value, type, types)) continue;
+    if (!value || value.length > 200 || !keepEntity(value, type, types, strictness)) continue;
     const k = `${type}:${value.toLowerCase()}`;
     if (seen.has(k)) continue;
     seen.add(k);
@@ -221,11 +230,13 @@ async function detectViaEndpoint(text, det, signal, fetchImpl) {
   const res = await fetchImpl(det.url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...(det.apiKey ? { Authorization: `Bearer ${det.apiKey}` } : {}) },
-    body: JSON.stringify({ text }),
+    // `strict` asks the detector itself to keep what it would second-guess (the gateway's /ner
+    // and in-process engine read it); a service that does not know the field ignores it.
+    body: JSON.stringify({ text, ...(det.strictness === 'strict' ? { strict: true } : {}) }),
     signal,
   });
   if (!res.ok) throw new Error(`detect HTTP ${res.status}`);
-  return normalizeEntities(await res.json(), det.types);
+  return normalizeEntities(await res.json(), det.types, { strictness: det.strictness });
 }
 
 async function detectViaOpenAI(text, det, signal, fetchImpl, structured = NO_STRUCTURE) {
@@ -273,7 +284,7 @@ async function detectViaOpenAI(text, det, signal, fetchImpl, structured = NO_STR
   const content = json?.choices?.[0]?.message?.content ?? json?.content ?? '';
   // The schema-aligned reader when the host has one; the loose slice otherwise.
   const parsed = structured.parse ? structured.parse(content) : parseJsonLoose(content);
-  return normalizeEntities(parsed, det.types);
+  return normalizeEntities(parsed, det.types, { strictness: det.strictness });
 }
 
 // Never throws: an egress record that could break redaction is worse than no record.
@@ -301,7 +312,7 @@ function report(onEgress, det, sent, t0, count, err) {
 const hostOf = (u) => { try { return new URL(String(u)).host; } catch { return ''; } };
 
 export async function detectEntities(text, cfg, { signal, fetchImpl = globalThis.fetch, strict = false, structured = NO_STRUCTURE, onEgress = null } = {}) {
-  const det = cfg?.detection;
+  const det = cfg?.detection ? { ...cfg.detection, strictness: strictnessOf(cfg) } : null;
   if (!det || !det.backend || det.backend === 'off' || !det.url || typeof fetchImpl !== 'function') return [];
   // AN IN-PROCESS DETECTOR SENDS NOTHING ANYWHERE, so the network guard below must not
   // judge it by a URL it never dials.
