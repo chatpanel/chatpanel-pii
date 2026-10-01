@@ -61,7 +61,7 @@ export function withTimeout(promise, ms, signal) {
 //
 // When adding a model, run one sentence through it and map every label it returns. An
 // unrecognised label is a hole, and it is an invisible one.
-function normType(t) {
+export function normType(t) {
   const s = String(t || 'ENTITY').toUpperCase().replace(/[^A-Z0-9]/g, '') || 'ENTITY';
   const map = {
     // People
@@ -109,8 +109,21 @@ function normType(t) {
 const ALWAYS_KEEP = new Set(['EMAIL', 'PHONE', 'SSN', 'CREDITCARD', 'IBAN', 'ID', 'SECRET']);
 const LOCATION_TYPES = new Set(['LOCATION', 'FAC', 'ADDRESS', 'GROUP', 'NRP']);
 
+// A QUANTITY is not an address. privacy-filter tagged "1M dwelling" (in "home insurance quotes in
+// 98065 for 1M dwelling", 2026-09-30) as private_address, and the model was sent "for
+// [[ADDRESS_1]]" — the coverage it was asked about, gone. A span holding an amount ("1M", "500k",
+// "$1.2m", "20%") and no house number of its own is the amount, not where someone lives; a
+// postcode, a street and a city are untouched.
+const QUANTITY = /(?:^|[\s$€£])\$?\d+(?:[.,]\d+)?\s?(?:[kmb]n?|mm|million|billion|thousand|%)(?=[\s.,;:!?)]|$)/i;
+const HOUSE_NUMBER = /(?:^|\s)\d{1,6}(?=\s|,|$)/;
+export function quantityNotAddress(value) {
+  const v = String(value || '').trim();
+  return QUANTITY.test(v) && !HOUSE_NUMBER.test(v);
+}
+
 function keepEntity(value, type, types) {
   const on = (k) => !types || types[k] !== false; // default on
+  if (type === 'ADDRESS' && quantityNotAddress(value)) return false;
   if (ALWAYS_KEEP.has(type)) return true;
   if (type === 'PERSON') return on('person');
   if (type === 'ORG') return on('org');

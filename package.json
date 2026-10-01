@@ -1,6 +1,6 @@
 {
   "name": "@chatpanel/pii",
-  "version": "0.12.1",
+  "version": "0.13.0",
   "description": "The canonical ChatPanel privacy engine \u2014 reversible PII redaction + pseudonymization with local entity detection. Pure, dependency-free ESM shared by the ChatPanel extension, gateway, and bridge.",
   "type": "module",
   "main": "index.js",
@@ -14,7 +14,8 @@
     "./sanitize.js": "./sanitize.js",
     "./net.js": "./net.js",
     "./detector-router.js": "./detector-router.js",
-    "./trust.js": "./trust.js"
+    "./trust.js": "./trust.js",
+    "./recased-spans.js": "./recased-spans.js"
   },
   "files": [
     "index.js",
@@ -27,6 +28,7 @@
     "net.js",
     "detector-router.js",
     "trust.js",
+    "recased-spans.js",
     "LICENSE",
     "README.md"
   ],
