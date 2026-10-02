@@ -130,8 +130,26 @@ export function quantityNotAddress(value) {
 export const REDACTION_STRICTNESS = Object.freeze(['balanced', 'strict']);
 export const strictnessOf = (cfg) => (cfg?.strictness === 'strict' || cfg?.detection?.strictness === 'strict' ? 'strict' : 'balanced');
 
+// THE ASSISTANT'S OWN NAME IS NOT THE PERSON'S DATA. A detector reads "chap" as a person and
+// "chatpanel" as an organisation, and a detected value is replaced everywhere it appears —
+// including the system text this product writes, which names both on every request. "open new
+// tab and search for chap by chatpanel" (2026-10-02) reached Codex as "search for [[PERSON_1]]
+// by [[ORG_3]]" under instructions that read "The [[PERSON_3]] tools above are authoritative
+// for what only [[PERSON_3]] can reach", and it searched for the placeholders. Hiding a name
+// the same request spells out protects nothing, so this holds at every strictness: it is not a
+// doubtful detection, it is ours. Only a span made of these names alone ("Chap", "Chap by
+// ChatPanel") — "Chap Singh" is a person and stays one. A person who does want the word hidden
+// puts it in their redaction dictionary, which is matched exactly and never passes here.
+const OWN_NAMES = new Set(['chap', 'chatpanel']);
+const OWN_JOINERS = new Set(['by', 'hey']);
+export function ownName(value) {
+  const words = String(value || '').toLowerCase().match(/\p{L}[\p{L}\p{N}]*/gu) || [];
+  return words.some((w) => OWN_NAMES.has(w)) && words.every((w) => OWN_NAMES.has(w) || OWN_JOINERS.has(w));
+}
+
 function keepEntity(value, type, types, strictness = 'balanced') {
   const on = (k) => !types || types[k] !== false; // default on
+  if ((type === 'PERSON' || type === 'ORG') && ownName(value)) return false;
   if (strictness !== 'strict' && type === 'ADDRESS' && quantityNotAddress(value)) return false;
   if (ALWAYS_KEEP.has(type)) return true;
   if (type === 'PERSON') return on('person');

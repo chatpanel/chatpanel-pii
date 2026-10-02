@@ -54,6 +54,14 @@ export function restoreToolArgs(value, vault) {
 // Codex chose its own web search over ChatPanel's `find` on one turn and answered from
 // nothing. The extra sentence says which tools restore and which do not, so the choice is
 // no longer a coin toss.
+//
+// It is the WHOLE note that has to be true, and for more than lookups. The extension built this
+// note without `ownTools` for every model, so Codex was told "ANY tool" restores and, asked to
+// "open new tab and search for chap by chatpanel" (2026-10-02), drove its own browser tool to
+// a search for "[[PERSON_1]] by [[ORG_3]]". With `ownTools` the opening sentence names the
+// LISTED tools only, the rule covers anything a tool is handed — a search, a page to open, text
+// to type or save — and an agent with no listed tool for the job says so rather than sending
+// the placeholder. `placeholderNote({ ownTools })` says the same on a turn with none listed.
 /**
  * The note for a turn with NO tools armed. The model still meets `[[LOCATION_1]]` in the
  * conversation, and a coding agent told nothing about it stops to ask what the "unresolved
@@ -61,14 +69,30 @@ export function restoreToolArgs(value, vault) {
  * concrete value, write around it, echo it exactly; the real value is restored on the way
  * back. Short, because there is nothing to call.
  */
-export function placeholderNote() {
+export function placeholderNote({ ownTools = false } = {}) {
   return 'PRIVACY PLACEHOLDERS: some values in this conversation are tokens like [[PERSON_1]], '
     + '[[LOCATION_1]], [[ORG_1]] that stand in for the user\'s real private data. Treat each one as '
     + 'a CONCRETE, specific value you already have — not missing or unknown information. Do not ask '
     + 'what it stands for, do not say it is unresolved, and do not refuse on privacy grounds. Reason '
     + 'and write with the placeholder exactly as written; the real value is restored in your answer '
-    + 'automatically.';
+    + 'automatically.'
+    + (ownTools ? OWN_TOOLS_UNLISTED : '');
 }
+
+// What a relayed agent is told about the tools it brings itself: with tools listed, and with none.
+const OWN_TOOLS_LITERAL = 'Any tool you bring yourself — your own web search, browser, shell, file '
+  + 'or code tools — receives the placeholder text literally: it finds nothing, and it opens, types '
+  + 'or saves the placeholder itself. ';
+const OWN_TOOLS_LISTED = ' ONLY THE TOOLS LISTED IN THIS CONVERSATION restore placeholders. '
+  + OWN_TOOLS_LITERAL
+  + 'So for ANYTHING that involves a placeholder — a lookup, a search, a page to open, text to type '
+  + 'or save — call the listed tool (for example `find` with action `web_search` or '
+  + '`history_search`) rather than your own; if no listed tool can do it, say so instead of handing '
+  + 'a placeholder to a tool of your own. Prefer the listed tools for lookups in general — the user '
+  + 'sees those as steps — and keep your own tools for what the listed ones cannot do.';
+const OWN_TOOLS_UNLISTED = ' That restoring happens in your ANSWER only. ' + OWN_TOOLS_LITERAL
+  + 'So never hand a placeholder to a tool of your own: if the request needs the real value in a '
+  + 'tool, say which part you could not do.';
 
 export function placeholderToolNote({ toolData = 'real', ownTools = false } = {}) {
   const intro =
@@ -78,7 +102,7 @@ export function placeholderToolNote({ toolData = 'real', ownTools = false } = {}
     ? 'When you call a LOCAL tool the placeholder is automatically replaced with the real '
       + 'value before the tool runs; REMOTE (MCP) tools deliberately receive the placeholder '
       + 'to keep private data off third-party servers. '
-    : 'When you call ANY tool, these placeholders are AUTOMATICALLY replaced with the real '
+    : `When you call ${ownTools ? 'a tool LISTED IN THIS CONVERSATION' : 'ANY tool'}, these placeholders are AUTOMATICALLY replaced with the real `
       + 'values before the tool executes — the tool receives the TRUE value and returns correct '
       + 'results. ';
   const rules =
@@ -98,14 +122,7 @@ export function placeholderToolNote({ toolData = 'real', ownTools = false } = {}
     + 'Do NOT ask the user to re-type the value and do NOT refuse on privacy grounds — the lookup '
     + 'will work. The real values are restored in your final answer automatically, so write your '
     + 'answer using the placeholders too.';
-  const own = ownTools
-    ? ' ONLY THE TOOLS LISTED IN THIS CONVERSATION restore placeholders. Any tool you bring '
-      + 'yourself — your own web search, shell, file or code tools — receives the placeholder '
-      + 'text literally and will find nothing. So for ANY lookup that involves a placeholder, '
-      + 'call the listed tool (for example `find` with action `web_search` or `history_search`) '
-      + 'rather than your own. Prefer the listed tools for lookups in general — the user sees '
-      + 'those as steps — and keep your own tools for what the listed ones cannot do.'
-    : '';
+  const own = ownTools ? OWN_TOOLS_LISTED : '';
   return intro + remote + rules + own;
 }
 

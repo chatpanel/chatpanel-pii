@@ -50,12 +50,30 @@ test('privacy OFF (no vault): ②③④ pass through unchanged, but ⓪ selectTo
 test('the placeholder note tells a relayed agent that only the listed tools restore placeholders', () => {
   const plain = placeholderToolNote();
   assert.doesNotMatch(plain, /ONLY THE TOOLS LISTED/);
+  assert.match(plain, /When you call ANY tool/, 'an API model has only the listed tools, so "any" is true for it');
   const own = placeholderToolNote({ ownTools: true });
   assert.match(own, /ONLY THE TOOLS LISTED IN THIS CONVERSATION restore placeholders/);
-  assert.match(own, /your own web search, shell, file or code tools — receives the placeholder text literally/);
+  assert.match(own, /your own web search, browser, shell, file or code tools — receives the placeholder text literally/);
   assert.match(own, /call the listed tool \(for example `find`/);
-  assert.ok(own.startsWith(plain), 'the addition is a suffix — everything the API-model note says still holds');
+  // The whole note is true for an agent: it was told "ANY tool" restores a few lines above the
+  // sentence saying its own do not, and it sent "[[PERSON_1]] by [[ORG_3]]" to its own browser.
+  assert.doesNotMatch(own, /When you call ANY tool/);
+  assert.match(own, /When you call a tool LISTED IN THIS CONVERSATION, these placeholders are AUTOMATICALLY replaced/);
+  // Not lookups alone: opening, typing and saving are where a literal placeholder does harm.
+  assert.match(own, /for ANYTHING that involves a placeholder — a lookup, a search, a page to open, text to type or save/);
+  assert.match(own, /if no listed tool can do it, say so instead of handing a placeholder to a tool of your own/);
+  assert.equal(own.replace('a tool LISTED IN THIS CONVERSATION,', 'ANY tool,').startsWith(plain), true, 'everything else the API-model note says still holds');
   assert.match(placeholderToolNote({ toolData: 'redactRemote', ownTools: true }), /REMOTE \(MCP\) tools deliberately receive the placeholder[\s\S]*ONLY THE TOOLS LISTED/);
+});
+
+test('a relayed agent with no listed tools is told its own tools get the placeholder as it is', async () => {
+  const { placeholderNote } = await import('../tool-harness.js');
+  assert.doesNotMatch(placeholderNote(), /tool of your own/, 'an API model with no tools has nothing to hand a placeholder to');
+  const own = placeholderNote({ ownTools: true });
+  assert.ok(own.startsWith(placeholderNote()));
+  assert.match(own, /receives the placeholder text literally/);
+  assert.match(own, /never hand a placeholder to a tool of your own/);
+  assert.doesNotMatch(own, /call the listed tool/, 'none is listed');
 });
 
 test('a turn with no tools still learns what a placeholder is', async () => {
