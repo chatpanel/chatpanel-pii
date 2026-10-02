@@ -68,27 +68,36 @@ export function recommendDetector(catalog = [], machine = {}, providers = []) {
     if (usedMB + cost > budgetMB) { skipped.push({ id: m.id, why: `${role}: needs ~${cost} MB, ${budgetMB - usedMB} MB of the ${budgetMB} MB detector budget left` }); return false; }
     chosen.push(m); usedMB += cost; return true;
   };
-  // The privacy model first — it is the one that finds what redaction is for — then a
-  // place-finder beside it; if the privacy model does not fit, the place-finder alone.
-  const gotPrivacy = take(privacy, 'private people, addresses, secrets');
+  // THE PLACE-FINDER IS THE RECOMMENDATION. The privacy model came first here whenever it fit
+  // the memory budget, and on a 32 GB laptop it then sat beside the small model in every chat
+  // turn's redaction: ~250 ms a window for the pair where the small model alone takes ~35 —
+  // seven times the wait before the first token, for a chat (owner, 2026-10-01: "that's slow;
+  // the normal smaller model is good"). So the recommendation is the place-finder that fits,
+  // alone. Privacy Filter is an ALTERNATIVE the person may add under Models, with what it
+  // finds and what it costs said next to it — and where it would not fit at all, the server
+  // offer, as before.
   take(placesModel, 'places and organisations');
   if (!chosen.length) take(small, 'the smallest model');
   if (!chosen.length && small) { chosen.push(small); usedMB += residentMB(small); } // the floor: always something
 
   const primary = chosen[0].id;
-  const union = chosen.slice(1).map((m) => m.id);
-  const reasons = [];
-  if (gotPrivacy) reasons.push(`${byId(primary).label || primary} finds private people (lowercase too), addresses and secrets`);
-  if (union.length) reasons.push(`${union.map((id) => byId(id)?.label || id).join(' + ')} add${union.length === 1 ? 's' : ''} places and organisations`);
-  if (!gotPrivacy && privacy) reasons.push(`Privacy Filter (~${residentMB(privacy)} MB) does not fit the ${budgetMB} MB this machine can spare for detectors`);
-  reasons.push(`~${usedMB} MB of ${budgetMB} MB (this machine: ${Math.round((machine.totalRamMB || 0) / 1024)} GB)`);
-
+  const union = [];
+  const primaryLabel = byId(primary)?.label || primary;
+  const reasons = [`${primaryLabel} finds names, places and organisations`];
   const alternatives = [];
-  if (!gotPrivacy && privacy) {
-    const servers = (providers || []).filter((p) => (p.capabilities || p.provides || []).includes('detect'));
-    for (const p of servers) alternatives.push({ kind: p.reach === 'device' ? 'local-server' : 'server', id: p.id, why: `${p.name || p.id} can run the detection for this machine (${p.reach || 'remote'})` });
-    if (!servers.length) alternatives.push({ kind: 'server', why: 'run detection on a server — an engine server on a bigger machine, or a hosted detector — and add it under Models' });
+  if (privacy) {
+    const cost = residentMB(privacy);
+    if (usedMB + cost <= budgetMB) {
+      alternatives.push({ kind: 'model', id: privacy.id, why: `${privacy.label || privacy.id} finds private people (lowercase too), addresses and secrets — about seven times the time per turn beside ${primaryLabel}; add it under Models` });
+    } else {
+      skipped.push({ id: privacy.id, why: `private people, addresses, secrets: needs ~${cost} MB, ${budgetMB - usedMB} MB of the ${budgetMB} MB detector budget left` });
+      reasons.push(`Privacy Filter (~${cost} MB) does not fit the ${budgetMB} MB this machine can spare for detectors`);
+      const servers = (providers || []).filter((p) => (p.capabilities || p.provides || []).includes('detect'));
+      for (const p of servers) alternatives.push({ kind: p.reach === 'device' ? 'local-server' : 'server', id: p.id, why: `${p.name || p.id} can run the detection for this machine (${p.reach || 'remote'})` });
+      if (!servers.length) alternatives.push({ kind: 'server', why: 'run detection on a server — an engine server on a bigger machine, or a hosted detector — and add it under Models' });
+    }
   }
+  reasons.push(`~${usedMB} MB of ${budgetMB} MB (this machine: ${Math.round((machine.totalRamMB || 0) / 1024)} GB)`);
   return { primary, union, budgetMB, usedMB, reason: reasons.join(' · '), skipped, alternatives };
 }
 

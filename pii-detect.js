@@ -311,7 +311,10 @@ function report(onEgress, det, sent, t0, count, err) {
 // (never the full URL, which can hold a token) and counts — never values.
 const hostOf = (u) => { try { return new URL(String(u)).host; } catch { return ''; } };
 
-export async function detectEntities(text, cfg, { signal, fetchImpl = globalThis.fetch, strict = false, structured = NO_STRUCTURE, onEgress = null } = {}) {
+// `onError(e)`: the fail-open answer `[]` is also what "no names here" looks like; a caller
+// that remembers answers per piece of text (the gateway, per paragraph) needs to know which
+// it was, or a timeout while the model was busy becomes "no names here" for that text for good.
+export async function detectEntities(text, cfg, { signal, fetchImpl = globalThis.fetch, strict = false, structured = NO_STRUCTURE, onEgress = null, onError = null } = {}) {
   const det = cfg?.detection ? { ...cfg.detection, strictness: strictnessOf(cfg) } : null;
   if (!det || !det.backend || det.backend === 'off' || !det.url || typeof fetchImpl !== 'function') return [];
   // AN IN-PROCESS DETECTOR SENDS NOTHING ANYWHERE, so the network guard below must not
@@ -351,7 +354,11 @@ export async function detectEntities(text, cfg, { signal, fetchImpl = globalThis
     } catch (e) { if (!inProcess) report(onEgress, det, capped, t0, 0, e); throw e; }
   } catch (e) {
     if (strict) throw e; // surface errors to the Test button
-    ents = []; // otherwise fail open — deterministic redaction still applies
+    // Fail open — deterministic redaction still applies — but NOT remembered: fail-open is a
+    // decision about this request, not a fact about the text. Cached, a timeout while the
+    // model was busy answered "no names here" for that text for the life of the process.
+    try { onError?.(e); } catch { /* a listener never changes the answer */ }
+    return [];
   }
   if (cache.size >= CACHE_MAX) cache.clear();
   if (!strict) cache.set(key, ents);

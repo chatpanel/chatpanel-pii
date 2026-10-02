@@ -18,18 +18,25 @@ test('budget: 8% of RAM, never under the small model', () => {
   assert.equal(residentMB(CATALOG[0]), 241);
 });
 
-test('a 32 GB machine: Privacy Filter + the English place-finder; a note on cost', () => {
+// Privacy Filter was the recommendation wherever it fit; beside the small model it made every
+// chat turn wait seven times longer for its first token, so the place-finder alone is the
+// recommendation and Privacy Filter is offered as what it is: more thorough, and slower.
+test('a 32 GB machine: the English place-finder alone; Privacy Filter offered as an alternative, with its cost', () => {
   const r = recommendDetector(CATALOG, { totalRamMB: 32768 });
-  assert.equal(r.primary, 'openai/privacy-filter');
-  assert.deepEqual(r.union, ['Xenova/bert-base-NER']);
-  assert.match(r.reason, /finds private people/);
+  assert.equal(r.primary, 'Xenova/bert-base-NER');
+  assert.deepEqual(r.union, []);
+  assert.match(r.reason, /finds names, places and organisations/);
   assert.deepEqual(r.skipped, []);
-  assert.deepEqual(r.alternatives, []);
+  assert.equal(r.alternatives.length, 1);
+  assert.equal(r.alternatives[0].kind, 'model');
+  assert.equal(r.alternatives[0].id, 'openai/privacy-filter');
+  assert.match(r.alternatives[0].why, /seven times the time per turn/);
 });
 
 test('a 32 GB machine with non-English text: the multilingual place-finder instead', () => {
   const r = recommendDetector(CATALOG, { totalRamMB: 32768, langs: ['en', 'de'] });
-  assert.deepEqual(r.union, ['Xenova/bert-base-multilingual-cased-ner-hrl']);
+  assert.equal(r.primary, 'Xenova/bert-base-multilingual-cased-ner-hrl');
+  assert.deepEqual(r.union, []);
 });
 
 test('an 8 GB machine: Privacy Filter is skipped with the reason, the place-finder runs alone, a server is offered', () => {

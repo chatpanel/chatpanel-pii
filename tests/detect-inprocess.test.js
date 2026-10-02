@@ -85,3 +85,29 @@ test('a real endpoint IS still reported as egress', async () => {
   }, { fetchImpl, strict: true, onEgress: (e) => egress.push(e) });
   assert.equal(egress.length, 1, 'text leaving for a detector is always recorded');
 });
+
+// A FAILURE IS NOT AN ANSWER. Fail-open returns [] — the same shape as "no names here" — and
+// that answer used to be cached for the life of the process. A host that remembers answers
+// per paragraph (the gateway, from 0.85.5) would have kept a busy model's timeout as "nothing
+// here" for that paragraph for good.
+test('a failed detection is fail-open NOW, reported through onError, and asked again next time — never cached', async () => {
+  let fail = true;
+  const calls = [];
+  const errors = [];
+  const flaky = async (url, opts) => {
+    calls.push(JSON.parse(opts.body).text);
+    if (fail) throw new Error('model busy');
+    return new Response(JSON.stringify({ entities: ENTS }), { status: 200, headers: { 'content-type': 'application/json' } });
+  };
+  const cfg = { detection: { backend: 'endpoint', url: 'inproc:ner', transport: 'in-process', timeoutMs: 2000 } };
+  const text = 'a paragraph nobody has asked about before, by Alex Rivera';
+  assert.deepEqual(await detectEntities(text, cfg, { fetchImpl: flaky, onError: (e) => errors.push(e.message) }), [], 'fail-open');
+  assert.deepEqual(errors, ['model busy'], 'and the caller is told it was a failure');
+  fail = false;
+  const ents = await detectEntities(text, cfg, { fetchImpl: flaky, onError: (e) => errors.push(e.message) });
+  assert.ok(ents.length > 0, 'asked again, and answered');
+  assert.equal(calls.length, 2);
+  assert.equal(errors.length, 1);
+  await detectEntities(text, cfg, { fetchImpl: flaky });
+  assert.equal(calls.length, 2, 'a real answer IS cached');
+});
